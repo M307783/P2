@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-# Finder filen
+# Finder filen hurtigt
 path = r"C:/Data/2dknee.h5"
 
 # Tildeler filen som en array
