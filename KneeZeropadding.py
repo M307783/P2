@@ -100,12 +100,12 @@ def samplingmask(ky_size, acceleration_factor=4, center_fraction=0.20, seed=42):
     center_end = ky_size // 2 + int(ky_size * center_fraction) // 2
     mask[center_start:center_end] = True
 
-    # Beregner hvor mange linjer vi vil sample udenfor centeret
+    # Beregner hvor mange linjer vi vil sample udenfor centrum
     n_center = mask.sum()
     n_total = ky_size // acceleration_factor
     n_random = n_total - n_center
 
-    # Sampler tilfældigt fra de resterende linjer udenfor centeret
+    # Sampler tilfældigt fra de resterende linjer udenfor centrum
     outside_center = np.where(~mask)[0]
     chosen = np.random.choice(outside_center, size=int(n_random), replace=False)
     mask[chosen] = True
