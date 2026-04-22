@@ -44,7 +44,7 @@ def fillkspace():
         if acq.idx.slice != slice_number:
             continue
 
-        # kspace_encode_step_1 fortæller os i hvilket row den enkelte acquisition bliver sat ind i.
+        # kspace_encode_step_1 fortæller os i hvilket row den enkelte acquisition hører til.
         row = acq.idx.kspace_encode_step_1
         # For at filtrere noget støj (eller kalibrering) væk sørger vi for kun at kigge indenfor vores matrixsize
         # hvis vi får en row værdi som er negativ eller større end de 202, ser vi bort fra den
@@ -157,7 +157,6 @@ def RelativeMeanSquareError(image_ref, image_recon):
 
 print(f'Zerofill - Absolute error: {MeanSquareError(image, image_undersampled): .1f}')
 print(f'Zerofill - Relative error: {RelativeMeanSquareError(image, image_undersampled): .4f}')
-
 
 # laver subplots, så vi kan få dem på samme figure
 fig, axes = plt.subplots(2,2,figsize=(10,5)) # ændre ncols ud fra hvor mange rekonstruktioner vi vil vise
