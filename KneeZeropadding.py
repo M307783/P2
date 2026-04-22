@@ -13,10 +13,8 @@ dset = ismrmrd.Dataset(path, "dataset")
 header = ismrmrd.xsd.CreateFromDocument(dset.read_xml_header())
 enc = header.encoding[0]
 
-
 kx = enc.encodedSpace.matrixSize.x # Definerer størrelsen af matricen i kx retning - 352
 ky_size = enc.encodedSpace.matrixSize.y # Definerer størrelsen af matricen i ky retning - 202
-
 
 # Antallet af coils
 # Kan også aflæses i xml
@@ -78,18 +76,19 @@ def fillkspace():
         kspace[row, :n] = line[:n]
     return kspace
 
-kspace = fillkspace()
-image = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(kspace)))
+def transform(kspace):
+    return np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(kspace)))
 
+image = transform(fillkspace())
 
 # mangler kommentarer på følgende funktion
-def samplingmask(ky_size, acceleration_factor=4, center_fraction=0.20, seed=42):
+def samplingmask(ky_size, acceleration_factor=7, center_fraction=0.04, seed=42):
     """
-    Genererer en tilfældig undersamplings maske med et fully sampled center.
+    Genererer en tilfældig undersamplings maske med et fully sampled centrum.
 
     ky_size:             Antal rækker i k-space
     acceleration_factor: Hvor hurtigt vi sampler (R=4 betyder vi beholder 1/4 af linjerne)
-    center_fraction:     Andelen af k-space centeret som altid er fuldt samplet (0.08 = 8%)
+    center_fraction:     Andelen af k-space centrum som altid er fuldt samplet (0.08 = 8%)
     seed:                Seed til tilfældig sampling, så vi får samme maske hver gang
     """
     np.random.seed(seed)
@@ -104,6 +103,7 @@ def samplingmask(ky_size, acceleration_factor=4, center_fraction=0.20, seed=42):
     n_center = mask.sum()
     n_total = ky_size // acceleration_factor
     n_random = n_total - n_center
+    print(f'Rækker beholdt: {n_total}) # printer hvor mange rækker vi beholder ud af de 202
 
     # Sampler tilfældigt fra de resterende linjer udenfor centrum
     outside_center = np.where(~mask)[0]
@@ -118,9 +118,7 @@ def undersampling(kspace):
     kspace_undersampled[~mask, :] = 0
     return kspace_undersampled
 
-kspace_undersampled = undersampling(kspace)
-image_undersampled = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(kspace_undersampled)))
-
+image_undersampled = transform(undersampling(kspace))
 
 def l2reconstruction():
     """
@@ -129,6 +127,35 @@ def l2reconstruction():
     """
 
     return
+
+def MeanSquareError(image_ref, image_recon):
+    """
+
+    :param image_ref: Reference image ("perfekte" billede)
+    :param image_recon: Reconstructed image
+    :return: Returnerer den absolutte fejl mellem det "perfekte" billede og rekonstruktionen
+    men med en skalering på den højeste reference værdi, da det er meget høje værdier
+    """
+    ref = np.abs(image_ref)
+    recon = np.abs(image_recon)
+
+    return np.mean(np.square(ref - recon))
+
+def RelativeMeanSquareError(image_ref, image_recon):
+    """
+
+    :param image_ref: Reference image ("perfekte" billede)
+    :param image_recon: Reconstructed image
+    :return: Returnerer de relative fejl mellem det "perfekte" billede og rekonstruktionen
+    men med en skalering, da det er meget høje værdier
+    """
+    ref = np.abs(image_ref)
+    recon = np.abs(image_recon)
+
+    return np.sum(np.square(ref - recon)) / np.sum(np.square(ref))
+
+print(f'Zerofill - MSE: {MeanSquareError(image, image_undersampled)}')
+print(f'Zerofill - NMSE: {RelativeMeanSquareError(image, image_undersampled)}')
 
 
 # laver subplots, så vi kan få dem på samme figure
@@ -144,7 +171,7 @@ axes[0,0].set_title("Fully sampled k-space (log scale)")
 axes[1,0].imshow(np.abs(image),cmap='gray')
 axes[1,0].set_title("Fully sampled image reconstruction")
 
-axes[0,1].imshow(np.log(np.abs(kspace_undersampled)+1E-09), cmap='gray')
+axes[0,1].imshow(np.log(np.abs(undersampling(kspace))+1E-09), cmap='gray')
 axes[0,1].set_title("Undersampled k-space (log scale)")
 
 axes[1,1].imshow(np.abs(image_undersampled),cmap='gray')
