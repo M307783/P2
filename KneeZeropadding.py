@@ -103,7 +103,7 @@ def samplingmask(ky_size, acceleration_factor=7, center_fraction=0.04, seed=42):
     n_center = mask.sum()
     n_total = ky_size // acceleration_factor
     n_random = n_total - n_center
-    print(f'Rækker beholdt: {n_total}) # printer hvor mange rækker vi beholder ud af de 202
+    print(f'Rækker beholdt: {n_total}') # printer hvor mange rækker vi beholder ud af de 202
 
     # Sampler tilfældigt fra de resterende linjer udenfor centrum
     outside_center = np.where(~mask)[0]
@@ -118,7 +118,8 @@ def undersampling(kspace):
     kspace_undersampled[~mask, :] = 0
     return kspace_undersampled
 
-image_undersampled = transform(undersampling(kspace))
+kspace_undersampled = undersampling(kspace)
+image_undersampled = transform(kspace_undersampled)
 
 def l2reconstruction():
     """
@@ -154,8 +155,8 @@ def RelativeMeanSquareError(image_ref, image_recon):
 
     return np.sum(np.square(ref - recon)) / np.sum(np.square(ref))
 
-print(f'Zerofill - MSE: {MeanSquareError(image, image_undersampled)}')
-print(f'Zerofill - NMSE: {RelativeMeanSquareError(image, image_undersampled)}')
+print(f'Zerofill - Absolute error: {MeanSquareError(image, image_undersampled): .1f}')
+print(f'Zerofill - Relative error: {RelativeMeanSquareError(image, image_undersampled): .4f}')
 
 
 # laver subplots, så vi kan få dem på samme figure
@@ -171,7 +172,7 @@ axes[0,0].set_title("Fully sampled k-space (log scale)")
 axes[1,0].imshow(np.abs(image),cmap='gray')
 axes[1,0].set_title("Fully sampled image reconstruction")
 
-axes[0,1].imshow(np.log(np.abs(undersampling(kspace))+1E-09), cmap='gray')
+axes[0,1].imshow(np.log(np.abs(kspace_undersampled)+1E-09), cmap='gray')
 axes[0,1].set_title("Undersampled k-space (log scale)")
 
 axes[1,1].imshow(np.abs(image_undersampled),cmap='gray')
