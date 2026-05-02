@@ -1,7 +1,11 @@
 import ismrmrd
 import numpy as np
 import matplotlib.pyplot as plt
-
+"""
+Koden undersampler kspace og plotter det ved siden af det rekonstruerede billede (zerofill) og en tabel under
+For at plotte fuldt kspace eller image fjern udkommenteringer på linje 183-186
+For at skifte mellem samplingsmasker (random eller centrum) skal linje 137 og 176 ændres
+"""
 
 # Finder filen
 path = r"C:/Data/2dknee.h5"
@@ -81,8 +85,23 @@ def transform(kspace):
 
 image = transform(fillkspace())
 
-# mangler kommentarer på følgende funktion
-def samplingmask(ky_size, acceleration_factor=7, center_fraction=0.04, seed=42):
+def samplingmask(ky_size, center_fraction = 0.30):
+    mask = np.zeros(ky_size, dtype=bool)
+
+    # Beregner start og slut indeks for centrum af k-space
+    center_start = ky_size // 2 - int(ky_size * center_fraction) // 2
+    center_end = ky_size // 2 + int(ky_size * center_fraction) // 2
+    mask[center_start:center_end] = True
+
+    # Beregner hvor mange linjer vi vil sample udenfor centrum
+    n_center = mask.sum()
+    print(f'Rækker beholdt: {n_center: .0f}')  # printer hvor mange rækker vi beholder ud af de 202
+
+    mask[mask] = True
+
+    return mask, n_center
+
+def samplingmask_random(ky_size, acceleration_factor=4/3, center_fraction=0.30, seed=42):
     """
     Genererer en tilfældig undersamplings maske med et fully sampled centrum.
 
@@ -103,17 +122,19 @@ def samplingmask(ky_size, acceleration_factor=7, center_fraction=0.04, seed=42):
     n_center = mask.sum()
     n_total = ky_size // acceleration_factor
     n_random = n_total - n_center
-    print(f'Rækker beholdt: {n_total}') # printer hvor mange rækker vi beholder ud af de 202
+    print(f'Rækker beholdt: {n_total: .0f}') # printer hvor mange rækker vi beholder ud af de 202
+    print(f'Acceleration_factor: {acceleration_factor}')
+    print(f'Center_fraction: {center_fraction}')
 
     # Sampler tilfældigt fra de resterende linjer udenfor centrum
     outside_center = np.where(~mask)[0]
     chosen = np.random.choice(outside_center, size=int(n_random), replace=False)
     mask[chosen] = True
 
-    return mask
+    return mask, n_center
 
 def undersampling(kspace):
-    mask = samplingmask(ky_size)
+    mask, _ = samplingmask_random(ky_size) # ændrer her mellem almindelig eller random maske
     kspace_undersampled = kspace.copy()  # undersampler en kopi af kspace
     kspace_undersampled[~mask, :] = 0
     return kspace_undersampled
@@ -121,21 +142,11 @@ def undersampling(kspace):
 kspace_undersampled = undersampling(kspace)
 image_undersampled = transform(kspace_undersampled)
 
-def l2reconstruction():
-    """
-
-
-    """
-
-    return
-
 def MeanSquareError(image_ref, image_recon):
     """
-
     :param image_ref: Reference image ("perfekte" billede)
     :param image_recon: Reconstructed image
     :return: Returnerer den absolutte fejl mellem det "perfekte" billede og rekonstruktionen
-    men med en skalering på den højeste reference værdi, da det er meget høje værdier
     """
     ref = np.abs(image_ref)
     recon = np.abs(image_recon)
@@ -144,44 +155,64 @@ def MeanSquareError(image_ref, image_recon):
 
 def RelativeMeanSquareError(image_ref, image_recon):
     """
-
     :param image_ref: Reference image ("perfekte" billede)
     :param image_recon: Reconstructed image
     :return: Returnerer de relative fejl mellem det "perfekte" billede og rekonstruktionen
-    men med en skalering, da det er meget høje værdier
     """
     ref = np.abs(image_ref)
     recon = np.abs(image_recon)
 
     return np.sum(np.square(ref - recon)) / np.sum(np.square(ref))
 
-print(f'Zerofill - Absolute error: {MeanSquareError(image, image_undersampled): .1f}')
-print(f'Zerofill - Relative error: {RelativeMeanSquareError(image, image_undersampled): .4f}')
+# indsamler info til tabellen
+mask, n_center = samplingmask_random(ky_size)
+n_kept = int(mask.sum())
+n_percentile = float(n_kept/ky_size*100)
+centrum_percentile = float(n_center/ky_size*100) # OBS: den her er ikke inkluderet i tabellen, men er oplagt at tilføje til random sampling
+mse = MeanSquareError(image, image_undersampled)
+rmse = RelativeMeanSquareError(image, image_undersampled)
 
-# laver subplots, så vi kan få dem på samme figure
-fig, axes = plt.subplots(2,2,figsize=(10,5)) # ændre ncols ud fra hvor mange rekonstruktioner vi vil vise
+#plt.imshow(np.log(np.abs(kspace)+1E-09), cmap='gray') # plotter fuldt kspace alene
+#plt.imshow(np.abs(image),cmap='gray') # plotter det "perfekte" billede alene
+#plt.axis('off')
+#plt.show()
 
-# Plotter logaritmisk da der er rigtig stor forskel på værdierne.
-# Plotter magnitude af kspace
-# cmap='gray' gør plottet grayscale
-axes[0,0].imshow(np.log(np.abs(kspace)+1E-09), cmap='gray') # OBS: kan eventuelt tilføje meget småt tal til np.log..., da log(0) ikke er defineret
-axes[0,0].set_title("Fully sampled k-space (log scale)")
+fig = plt.figure(figsize=(14, 8))
 
-# Plotter fully sampled image efter fourier transform
-axes[1,0].imshow(np.abs(image),cmap='gray')
-axes[1,0].set_title("Fully sampled image reconstruction")
+# laver et gridspec: øverste række for billeder, nederste række til tabellen
+gs = fig.add_gridspec(2, 2, height_ratios=[4, 1], hspace=-0.4, wspace=0.1)
 
-axes[0,1].imshow(np.log(np.abs(kspace_undersampled)+1E-09), cmap='gray')
-axes[0,1].set_title("Undersampled k-space (log scale)")
+ax0 = fig.add_subplot(gs[0, 0])
+ax1 = fig.add_subplot(gs[0, 1])
+ax_table = fig.add_subplot(gs[1, :])  # spans both columns
 
-axes[1,1].imshow(np.abs(image_undersampled),cmap='gray')
-axes[1,1].set_title("Undersampled image reconstruction")
+# plotter kspace
+ax0.imshow(np.log(np.abs(kspace_undersampled) + 1E-09), cmap='gray')
+ax0.set_title("Undersampled k-space")
 
-#axes[0,2].imshow(np.log(np.abs(kspace_undersampled)+1E-09),cmap='gray') # skal der laves en ny kspace af det rekonstrueret billede?
-#axes[0,2].set_title("Undersampled k-space (log scale)")
+# plotter det rekonstruerede billede
+ax1.imshow(np.abs(image_undersampled), cmap='gray')
+ax1.set_title("Undersampled image reconstruction")
 
-#axes[1,2].imshow(np.abs(image_reconstruction),cmap='gray')
-#axes[1,2].set_title("L2 reconstructed image")
+ax0.axis('off')
+ax1.axis('off')
 
-plt.tight_layout()
+# bygger tabellen (kan eventuelt tilføje en centrum procent til for random sampling i nedenstående)
+table_data = [
+    ["Rows kept", f"{n_kept} / {ky_size}"],
+    ["Percentage kept", f"{n_percentile:.2f}%"],
+    ["MSE", f"{mse:.1f}"],
+    ["RMSE", f"{rmse:.4f}"],
+]
+
+ax_table.axis('off')
+table = ax_table.table(
+    cellText=table_data,
+    loc='center',
+    cellLoc='center'
+)
+table.auto_set_font_size(False)
+table.set_fontsize(12)
+table.scale(0.5, 1.5)  # ændrer på størrelsen af tabellen
+
 plt.show()
