@@ -1,0 +1,176 @@
+import ismrmrd
+import numpy as np
+import matplotlib.pyplot as plt
+"""
+Koden plotter relative mean square error mod samplingsprocent for zerofill rekonstruktion
+med tilfældig sampling. Her er det helt tilfældigt, så uden at tage høje for centrum og bare fjerner tilfældige rækker.
+Den laver et antal simuleringer pr. samplingsprocent ud fra n_seeds værdien.
+
+OBS: hvis n_seeds er for høj kan det tage lang tid at køre.
+Jeg ville nok starte med 10, det tog for mig omkring 10 sekunder at køre.
+For reference tog det 40 sekunder for mig at køre n_seeds = 50.
+Det højere n_seeds desto mindre tilfældig kommer grafen til at se ud.
+Så gerne tag så høj en n_seed som du har tålmodighed til.
+"""
+
+# Finder filen
+path = r"C:/Data/2dknee.h5"
+
+# Tildeler filen som en array
+dset = ismrmrd.Dataset(path, "dataset")
+
+# Læser information om encoding fra xml filen
+header = ismrmrd.xsd.CreateFromDocument(dset.read_xml_header())
+enc = header.encoding[0]
+
+kx = enc.encodedSpace.matrixSize.x # Definerer størrelsen af matricen i kx retning - 352
+ky_size = enc.encodedSpace.matrixSize.y # Definerer størrelsen af matricen i ky retning - 202
+
+# Antallet af coils
+# Kan også aflæses i xml
+# ncoils = 16 # Udkommenteret da en matrice over dataen ville være 16 x 352 x 202 (how tf er en matrix 3d)
+
+# Vælger 1 coil fremfor alle 16, så vi kan få en nx x ny matrix
+# Indekset bestemmer hvilken af de 16 coils (0-15) vi vælger
+coil_number = 0
+
+# Vi kigger kun på en slice
+# Indekset her bestemmer hvilken af de 28 slices (0-27) vi vælger
+slice_number = 10 # Vælger 10 da det er et af de slices hvor man kan se mest på
+
+# Generer en tom 2d matrix af størrelsen ny x nx.
+# np.complex64 sørger for at hver indgang i matricen ligner og agerer som et komplekst tal
+kspace = np.zeros((ky_size,kx),dtype=np.complex64)
+
+def fillkspace():
+    """
+    Der bliver kørt igennem alle acquisitions (samples)
+    og fylder række for række for den valgte slice og den valgte coil
+    Hvis den slice vi kigger på ikke er vores valgte slice, siger den continue (går videre til næste iteration)
+    """
+    for i in range(dset.number_of_acquisitions()):
+        acq = dset.read_acquisition(i)  # Vælger hvilken acquisition vi kigger på
+
+        if acq.idx.slice != slice_number:
+            continue
+
+        # kspace_encode_step_1 fortæller os i hvilket row den enkelte acquisition hører til.
+        row = acq.idx.kspace_encode_step_1
+        # For at filtrere noget støj (eller kalibrering) væk sørger vi for kun at kigge indenfor vores matrixsize
+        # hvis vi får en row værdi som er negativ eller større end de 202, ser vi bort fra den
+        if row < 0 or row >= ky_size:
+            continue
+
+        """
+        data svarer til acquisition data i vores acq array, som indeholder alt dataet for hver sample
+        # hver acquisition har coil number og tilsvarende samples.
+        # vi sætter coil number til en specifik værdi og får dermed kun vores samples på linjen.
+        """
+        line = acq.data[coil_number, :]
+
+        """
+        n = min(n,kx)
+        Vælger den mindste værdi af enten kx eller line.shape[0].
+        nx er bredden af vores k-space som defineret tidligere.
+        line.shape[0] kigger på dimensionen af det line array, hvilket er bredden altså antal indgange i arrayen
+        Det gør vi for at begrænse vores opfyldning af k-space til den størrelse, 
+        som vi har defineret den til at være. (Ser bort fra eventuel støj osv.)
+        """
+        n = min(kx, line.shape[0])
+
+        """
+        Den line af kx værdier, som vi har bestemt bliver tildelt hvert row, da row bliver indekseret.
+        Bredden af matricen kspace og bredden af vektoren line bliver begge begrænset af den samme værdi n.
+        Så en line svarer til en linje i kspace.
+        """
+        kspace[row, :n] = line[:n]
+    return kspace
+
+def transform(kspace):
+    return np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(kspace)))
+
+
+def samplingmask_random(ky_size, acceleration_factor, seed=42):
+    np.random.seed(seed)
+    mask = np.zeros(ky_size, dtype=bool)
+
+    n_total = int(ky_size / acceleration_factor)
+    chosen = np.random.choice(ky_size, size=n_total, replace=False)
+    mask[chosen] = True
+
+    return mask
+
+def undersampling(kspace):
+    mask = samplingmask_random(ky_size)
+    kspace_undersampled = kspace.copy()  # undersampler en kopi af kspace
+    kspace_undersampled[~mask, :] = 0
+    return kspace_undersampled
+
+def MeanSquareError(image_ref, image_recon):
+    """
+
+    :param image_ref: Reference image ("perfekte" billede)
+    :param image_recon: Reconstructed image
+    :return: Returnerer den absolutte fejl mellem det "perfekte" billede og rekonstruktionen
+    men med en skalering på den højeste reference værdi, da det er meget høje værdier
+    """
+    ref = np.abs(image_ref)
+    recon = np.abs(image_recon)
+
+    return np.mean(np.square(ref - recon))
+
+def RelativeMeanSquareError(image_ref, image_recon):
+    """
+
+    :param image_ref: Reference image ("perfekte" billede)
+    :param image_recon: Reconstructed image
+    :return: Returnerer de relative fejl mellem det "perfekte" billede og rekonstruktionen
+    men med en skalering, da det er meget høje værdier
+    """
+    ref = np.abs(image_ref)
+    recon = np.abs(image_recon)
+
+    return np.sum(np.square(ref - recon)) / np.sum(np.square(ref))
+
+# transformerer det fulde kspace til et billede
+image = transform(fillkspace())
+
+def simulation(n_seeds = 10):
+    """
+    Vi laver en simulering af tilfældig sampling i forhold til MSE.
+    For dette skal vi lave flere simuleringer for hvert samplingsprocent og tage gennemsnittet,
+    for at fjerne så meget af det tilfældige element som muligt i relationen melle MSE og samplingsprocent
+    """
+    simuleringer = 200
+    acceleration_factors = np.linspace(1.01, ky_size, simuleringer)
+    rmse = np.zeros(simuleringer)
+    percentage = np.zeros(simuleringer)
+
+    for i, af in enumerate(acceleration_factors):
+        rmse_seeds = np.zeros(n_seeds)
+
+        for seed in range(n_seeds):
+            mask = samplingmask_random(ky_size, acceleration_factor=af, seed=seed)
+
+            kspace_undersampled = kspace.copy()
+            kspace_undersampled[~mask, :] = 0
+            image_undersampled = transform(kspace_undersampled)
+            rmse_seeds[seed] = RelativeMeanSquareError(image, image_undersampled)
+
+        rmse[i] = np.mean(rmse_seeds)
+        percentage[i] = mask.sum() / ky_size * 100
+
+    return rmse, percentage
+
+rmse, percentage = simulation()
+
+
+# plotter forholdet mellem MSE og samplingsprocent
+plt.figure(figsize = (8,5))
+plt.plot(percentage,rmse)
+plt.ylabel('Relative Mean Squared Error')
+plt.xlabel('Sampling Percentage')
+plt.xticks(np.arange(0,101,5))
+plt.yticks(np.arange(0,1.2,0.2))
+plt.grid(True, which='both')
+plt.show()
