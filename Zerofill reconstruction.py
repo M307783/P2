@@ -164,6 +164,24 @@ def RelativeMeanSquareError(image_ref, image_recon):
 
     return np.sum(np.square(ref - recon)) / np.sum(np.square(ref))
 
+''' SSIM '''
+from skimage.metrics import structural_similarity as ssim
+
+def StructuralSimilarityIndex(image_ref, image_recon):
+    """
+    :param image_ref: Reference image ("perfekte" billede)
+    :param image_recon: Reconstructed image
+    :return: Returnerer SSIM-værdien (mellem -1 og 1, hvor 1 er et perfekt match)
+    """
+    # SSIM requires you to define the dynamic range of the pixel values.
+    # If your images are floats between 0 and 1, it's 1. If they are 8-bit integers, it's 255.
+    d_range = image_ref.max() - image_ref.min()
+    
+    # Calculate SSIM. Note: if you are using RGB images, you must add the parameter channel_axis=-1
+    score = ssim(image_ref, image_recon, data_range=d_range)
+    
+    return score
+
 # indsamler info til tabellen
 mask, n_center = samplingmask_random(ky_size)
 n_kept = int(mask.sum())
@@ -202,7 +220,8 @@ table_data = [
     ["Rows kept", f"{n_kept} / {ky_size}"],
     ["Percentage kept", f"{n_percentile:.2f}%"],
     ["MSE", f"{mse:.1f}"],
-    ["RMSE", f"{rmse:.4f}"],
+    ["RMSE", f"{rmse:.4f}"]
+    ["SSIM", f"{score:.4f}"],
 ]
 
 ax_table.axis('off')
